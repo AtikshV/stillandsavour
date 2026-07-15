@@ -141,7 +141,7 @@ return (
               {formatTime(secondsLeft)}
             </Text>
             <Text style={[styles.timerLabel, { fontSize: timerLabelFont, marginTop: timerLabelFont }]}>
-              {finished ? 'done' : `${activeTimer} min`}
+              {`${activeTimer} min`}
             </Text>
 
           </View>
