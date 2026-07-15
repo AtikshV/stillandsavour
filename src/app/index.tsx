@@ -147,7 +147,7 @@ return (
           </View>
 
           <Pressable style={styles.cancelButton} onPress={cancel}>
-            <Text style={[styles.cancelText, { fontSize: cancelFont }]}>cancel</Text>
+            <Text style={[styles.cancelText, { fontSize: cancelFont }]}>{finished ? 'done' : 'cancel'}</Text>
           </Pressable>
         </View>
       ) : (
