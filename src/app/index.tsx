@@ -107,7 +107,7 @@ export default function TimerScreen() {
     timerRunningRef.current = false;
     tripleBell.seekTo(0);
     tripleBell.play();
-    deactivateKeepAwake();
+    deactivateKeepAwake().catch(() => {});
     saveSession(activeTimer).then(refreshStats).catch(() => {});
   }, [finished, activeTimer]);
 
@@ -145,7 +145,7 @@ export default function TimerScreen() {
     setActiveTimer(null);
     setSecondsLeft(0);
     setFinished(false);
-    deactivateKeepAwake();
+    deactivateKeepAwake().catch(() => {});
   }
 
   return (
