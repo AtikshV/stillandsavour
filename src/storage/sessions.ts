@@ -1,28 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const KEY = 'meditation_sessions';
+const STATS_KEY = 'meditation_stats';
 
-export type Session = {
-  minutes: number;
-  completedAt: string; // ISO date string
+// Aggregate record: totalDays/totalMinutes only ever grow, recentDays holds
+// just the trailing 7-day window. Storage stays constant-size regardless of
+// how long the app has been used, unlike a per-session log would.
+type StoredStats = {
+  totalDays: number;
+  totalMinutes: number;
+  recentDays: string[]; // day-keys (YYYY-MM-DD) with a session, within the trailing 7 days
 };
-
-export async function saveSession(minutes: number): Promise<void> {
-  const existing = await loadSessions();
-  existing.push({ minutes, completedAt: new Date().toISOString() });
-  await AsyncStorage.setItem(KEY, JSON.stringify(existing));
-}
-
-export async function loadSessions(): Promise<Session[]> {
-  const raw = await AsyncStorage.getItem(KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
 
 export type Stats = {
   totalDays: number;
@@ -30,27 +17,68 @@ export type Stats = {
   totalMinutes: number;
 };
 
+const EMPTY_STATS: StoredStats = { totalDays: 0, totalMinutes: 0, recentDays: [] };
+
 function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-export function computeStats(sessions: Session[]): Stats {
-  const validSessions = sessions.filter(
-    (s) => typeof s.minutes === 'number' && typeof s.completedAt === 'string'
-  );
-
-  const daySet = new Set(validSessions.map((s) => localDateKey(new Date(s.completedAt))));
-  const totalDays = daySet.size;
-  const totalMinutes = validSessions.reduce((sum, s) => sum + s.minutes, 0);
-
-  const now = new Date();
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
+function last7DayKeys(now: Date): string[] {
+  return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now);
     d.setDate(now.getDate() - (6 - i));
-    return daySet.has(localDateKey(d));
+    return localDateKey(d);
   });
+}
 
-  return { totalDays, last7Days, totalMinutes };
+async function readStoredStats(): Promise<StoredStats> {
+  const raw = await AsyncStorage.getItem(STATS_KEY);
+  if (!raw) return EMPTY_STATS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.totalDays === 'number' &&
+      typeof parsed.totalMinutes === 'number' &&
+      Array.isArray(parsed.recentDays)
+    ) {
+      return parsed;
+    }
+  } catch {
+    // fall through to default
+  }
+  return EMPTY_STATS;
+}
+
+export async function saveSession(minutes: number): Promise<void> {
+  const stats = await readStoredStats();
+  const now = new Date();
+  const today = localDateKey(now);
+  const window = new Set(last7DayKeys(now));
+
+  const recentDays = stats.recentDays.filter((d) => window.has(d));
+  const isNewDay = !recentDays.includes(today);
+  if (isNewDay) recentDays.push(today);
+
+  const next: StoredStats = {
+    totalDays: stats.totalDays + (isNewDay ? 1 : 0),
+    totalMinutes: stats.totalMinutes + minutes,
+    recentDays,
+  };
+
+  await AsyncStorage.setItem(STATS_KEY, JSON.stringify(next));
+}
+
+export async function loadStats(): Promise<Stats> {
+  const stats = await readStoredStats();
+  const days = last7DayKeys(new Date());
+  const recentSet = new Set(stats.recentDays.filter((d) => days.includes(d)));
+
+  return {
+    totalDays: stats.totalDays,
+    totalMinutes: stats.totalMinutes,
+    last7Days: days.map((d) => recentSet.has(d)),
+  };
 }
 
 export function formatDuration(minutes: number): string {

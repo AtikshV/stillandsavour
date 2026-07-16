@@ -12,13 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  Stats,
-  computeStats,
-  formatDuration,
-  loadSessions,
-  saveSession,
-} from '@/storage/sessions';
+import { Stats, formatDuration, loadStats, saveSession } from '@/storage/sessions';
 
 const TIMERS = [
   { label: '10', minutes: 10 },
@@ -50,8 +44,7 @@ export default function TimerScreen() {
   const timerRunningRef = useRef(false);
 
   const refreshStats = useCallback(async () => {
-    const sessions = await loadSessions();
-    setStats(computeStats(sessions));
+    setStats(await loadStats());
   }, []);
 
   useEffect(() => {
