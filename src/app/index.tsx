@@ -1,7 +1,8 @@
 import { useAudioPlayer } from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AppState,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -11,6 +12,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  Stats,
+  computeStats,
+  formatDuration,
+  loadSessions,
+  saveSession,
+} from '@/storage/sessions';
+
 const TIMERS = [
   { label: '10', minutes: 10 },
   { label: '20', minutes: 20 },
@@ -18,7 +27,6 @@ const TIMERS = [
   { label: '60', minutes: 60 },
 ];
 
-// Reference width for proportional font scaling (iPhone 14)
 const BASE_WIDTH = 390;
 const MAX_BUTTON = 200;
 const MAX_CIRCLE = 400;
@@ -34,24 +42,33 @@ export default function TimerScreen() {
   const [activeTimer, setActiveTimer] = useState<number | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [stats, setStats] = useState<Stats>({ totalDays: 0, last7Days: Array(7).fill(false), totalMinutes: 0 });
 
   const singleBell = useAudioPlayer(require('../../assets/sounds/bell_single.mp3'));
   const tripleBell = useAudioPlayer(require('../../assets/sounds/bell_triple.mp3'));
 
+  const timerRunningRef = useRef(false);
+
+  const refreshStats = useCallback(async () => {
+    const sessions = await loadSessions();
+    setStats(computeStats(sessions));
+  }, []);
+
+  useEffect(() => {
+    refreshStats();
+  }, []);
+
   // --- Layout decisions ---
   const isLandscape = width > height;
   const shortEdge = Math.min(width, height);
-  // Scale factor relative to iPhone 14, capped at 1.4 for tablets
   const scale = Math.min(shortEdge / BASE_WIDTH, 1.4);
 
   const gutter = Math.round(24 * scale);
   const gap = Math.round(16 * scale);
 
-  // Portrait: 2×2 grid; Landscape: 1×4 row
   const cols = isLandscape ? 4 : 2;
-  // In landscape, size buttons off height so they fit vertically
   const availableForButtons = isLandscape
-    ? height - gutter * 2 - gap * 1 // 2 rows → actually 1 row in landscape, 1 gap across 4 cols
+    ? height - gutter * 2 - gap
     : width - gutter * 2 - gap;
   const rawButton = isLandscape
     ? Math.min(height - gutter * 2, (width - gutter * 2 - gap * 3) / 4)
@@ -61,15 +78,16 @@ export default function TimerScreen() {
   const rawCircle = isLandscape ? height * 0.6 : width * 0.74;
   const circleSize = Math.min(Math.round(rawCircle), MAX_CIRCLE);
 
-  // Proportional font sizes
   const numFont = Math.round(Math.min(buttonSize * 0.44, 58 * scale));
   const unitFont = Math.round(Math.min(buttonSize * 0.1, 14 * scale));
   const clockFont = Math.round(Math.min(circleSize * 0.22, 72 * scale));
   const timerLabelFont = Math.round(Math.min(circleSize * 0.048, 14 * scale));
   const titleFont = Math.round(Math.min(16 * scale, 22));
   const cancelFont = Math.round(Math.min(13 * scale, 16));
+  const statNumFont = Math.round(Math.min(20 * scale, 26));
+  const statLabelFont = Math.round(Math.min(10 * scale, 13));
 
-useEffect(() => {
+  useEffect(() => {
     if (activeTimer === null) return;
     const interval = setInterval(() => {
       setSecondsLeft((prev) => {
@@ -85,14 +103,15 @@ useEffect(() => {
   }, [activeTimer]);
 
   useEffect(() => {
-    if (finished) {
-      tripleBell.seekTo(0);
-      tripleBell.play();
-      deactivateKeepAwake();
-    }
+    if (!finished || activeTimer === null) return;
+    timerRunningRef.current = false;
+    tripleBell.seekTo(0);
+    tripleBell.play();
+    deactivateKeepAwake();
+    saveSession(activeTimer).then(refreshStats);
   }, [finished]);
 
-  // Midpoint bell: fires once when exactly half the time remains
+  // Midpoint bell
   useEffect(() => {
     if (activeTimer === null || secondsLeft === 0) return;
     if (secondsLeft === activeTimer * 30) {
@@ -101,7 +120,18 @@ useEffect(() => {
     }
   }, [secondsLeft]);
 
+  // Re-acquire wake lock when app returns to foreground mid-session
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && timerRunningRef.current) {
+        activateKeepAwakeAsync();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   function startTimer(minutes: number) {
+    timerRunningRef.current = true;
     setFinished(false);
     setActiveTimer(minutes);
     setSecondsLeft(minutes * 60);
@@ -111,13 +141,14 @@ useEffect(() => {
   }
 
   function cancel() {
+    timerRunningRef.current = false;
     setActiveTimer(null);
     setSecondsLeft(0);
     setFinished(false);
     deactivateKeepAwake();
   }
 
-return (
+  return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
 
@@ -130,11 +161,7 @@ return (
           <View
             style={[
               styles.timerCircle,
-              {
-                width: circleSize,
-                height: circleSize,
-                borderRadius: circleSize / 2,
-              },
+              { width: circleSize, height: circleSize, borderRadius: circleSize / 2 },
             ]}
           >
             <Text style={[styles.timerDisplay, { fontSize: clockFont }]}>
@@ -143,46 +170,77 @@ return (
             <Text style={[styles.timerLabel, { fontSize: timerLabelFont, marginTop: timerLabelFont }]}>
               {`${activeTimer} min`}
             </Text>
-
           </View>
 
           <Pressable style={styles.cancelButton} onPress={cancel}>
-            <Text style={[styles.cancelText, { fontSize: cancelFont }]}>{finished ? 'done' : 'cancel'}</Text>
+            <Text style={[styles.cancelText, { fontSize: cancelFont }]}>
+              {finished ? 'done' : 'cancel'}
+            </Text>
           </Pressable>
         </View>
       ) : (
-        <View
-          style={[
-            styles.grid,
-            {
-              flexDirection: 'row',
-              flexWrap: cols === 4 ? 'nowrap' : 'wrap',
-              gap,
-              paddingHorizontal: gutter,
-            },
-          ]}
-        >
-          {TIMERS.map(({ label, minutes }) => (
-            <Pressable
-              key={minutes}
-              style={({ pressed }) => [
-                styles.timerButton,
-                {
-                  width: buttonSize,
-                  height: buttonSize,
-                  borderRadius: buttonSize / 2,
-                },
-                pressed && styles.timerButtonPressed,
-              ]}
-              onPress={() => startTimer(minutes)}
-            >
-              <Text style={[styles.buttonMinutes, { fontSize: numFont, lineHeight: numFont * 1.1 }]}>
-                {label}
+        <>
+          <View
+            style={[
+              styles.grid,
+              {
+                flexDirection: 'row',
+                flexWrap: cols === 4 ? 'nowrap' : 'wrap',
+                gap,
+                paddingHorizontal: gutter,
+              },
+            ]}
+          >
+            {TIMERS.map(({ label, minutes }) => (
+              <Pressable
+                key={minutes}
+                style={({ pressed }) => [
+                  styles.timerButton,
+                  { width: buttonSize, height: buttonSize, borderRadius: buttonSize / 2 },
+                  pressed && styles.timerButtonPressed,
+                ]}
+                onPress={() => startTimer(minutes)}
+              >
+                <Text style={[styles.buttonMinutes, { fontSize: numFont, lineHeight: numFont * 1.1 }]}>
+                  {label}
+                </Text>
+                <Text style={[styles.buttonUnit, { fontSize: unitFont }]}>min</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={[styles.statNumber, { fontSize: statNumFont }]}>
+                {stats.totalDays}
               </Text>
-              <Text style={[styles.buttonUnit, { fontSize: unitFont }]}>{cols === 4 ? 'min' : 'min'}</Text>
-            </Pressable>
-          ))}
-        </View>
+              <Text style={[styles.statLabel, { fontSize: statLabelFont }]}>days</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <View style={[styles.dotsRow, { gap: Math.round(4 * scale) }]}>
+                {stats.last7Days.map((active, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      { width: Math.round(7 * scale), height: Math.round(7 * scale), borderRadius: Math.round(4 * scale) },
+                      active && styles.dotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.statLabel, { fontSize: statLabelFont }]}>last 7 days</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statNumber, { fontSize: statNumFont }]}>
+                {formatDuration(stats.totalMinutes)}
+              </Text>
+              <Text style={[styles.statLabel, { fontSize: statLabelFont }]}>total time</Text>
+            </View>
+          </View>
+        </>
       )}
     </SafeAreaView>
   );
@@ -195,13 +253,54 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: 20,
-    paddingBottom: 8,
+    paddingBottom: 16,
     alignItems: 'center',
   },
   title: {
     fontWeight: '300',
     letterSpacing: 5,
     color: '#6B6B80',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginHorizontal: 32,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: '#1E1E2E',
+    marginTop: 8,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 28,
+    backgroundColor: '#1E1E2E',
+  },
+  statNumber: {
+    fontWeight: '300',
+    color: '#C8C8D8',
+    letterSpacing: 1,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dot: {
+    backgroundColor: '#2A2A3E',
+  },
+  dotActive: {
+    backgroundColor: '#7070FF',
+  },
+  statLabel: {
+    fontWeight: '400',
+    letterSpacing: 3,
+    color: '#3A3A52',
+    textTransform: 'lowercase',
   },
   grid: {
     flex: 1,
@@ -261,7 +360,7 @@ const styles = StyleSheet.create({
     letterSpacing: 5,
     color: '#48486A',
   },
-cancelButton: {
+  cancelButton: {
     paddingVertical: 14,
     paddingHorizontal: 44,
     borderRadius: 32,
