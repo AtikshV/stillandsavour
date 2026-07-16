@@ -12,7 +12,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BellInterval, loadBellInterval, saveBellInterval } from '@/storage/bell-preference';
 import { Stats, formatDuration, loadStats, saveSession } from '@/storage/sessions';
+
+const BELL_OPTIONS: { label: string; value: BellInterval }[] = [
+  { label: 'off', value: 'off' },
+  { label: 'midpoint', value: 'midpoint' },
+  { label: 'every 10 min', value: 10 },
+];
 
 const TIMERS = [
   { label: '10', minutes: 10 },
@@ -37,6 +44,7 @@ export default function TimerScreen() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [finished, setFinished] = useState(false);
   const [stats, setStats] = useState<Stats>({ totalDays: 0, last7Days: Array(7).fill(false), totalMinutes: 0 });
+  const [bellInterval, setBellInterval] = useState<BellInterval>('midpoint');
 
   const singleBell = useAudioPlayer(require('../../assets/sounds/bell_single.mp3'));
   const tripleBell = useAudioPlayer(require('../../assets/sounds/bell_triple.mp3'));
@@ -49,7 +57,13 @@ export default function TimerScreen() {
 
   useEffect(() => {
     refreshStats().catch(() => {});
+    loadBellInterval().then(setBellInterval).catch(() => {});
   }, []);
+
+  function selectBellInterval(value: BellInterval) {
+    setBellInterval(value);
+    saveBellInterval(value).catch(() => {});
+  }
 
   // --- Layout decisions ---
   const isLandscape = width > height;
@@ -79,6 +93,7 @@ export default function TimerScreen() {
   const cancelFont = Math.round(Math.min(13 * scale, 16));
   const statNumFont = Math.round(Math.min(20 * scale, 26));
   const statLabelFont = Math.round(Math.min(10 * scale, 13));
+  const bellLabelFont = Math.round(Math.min(13 * scale, 16));
 
   useEffect(() => {
     if (activeTimer === null) return;
@@ -104,10 +119,13 @@ export default function TimerScreen() {
     saveSession(activeTimer).then(refreshStats).catch(() => {});
   }, [finished, activeTimer]);
 
-  // Midpoint bell
+  // Interval bell (off / midpoint / every N minutes)
   useEffect(() => {
-    if (activeTimer === null || secondsLeft === 0) return;
-    if (secondsLeft === activeTimer * 30) {
+    if (activeTimer === null || secondsLeft === 0 || bellInterval === 'off') return;
+    const totalSeconds = activeTimer * 60;
+    const intervalSeconds = bellInterval === 'midpoint' ? totalSeconds / 2 : bellInterval * 60;
+    const elapsed = totalSeconds - secondsLeft;
+    if (elapsed > 0 && elapsed % intervalSeconds === 0) {
       singleBell.seekTo(0);
       singleBell.play();
     }
@@ -202,6 +220,29 @@ export default function TimerScreen() {
             ))}
           </View>
 
+          <View style={styles.bellRow}>
+            <Text style={[styles.bellLabel, { fontSize: bellLabelFont }]}>presence chime</Text>
+            <View style={styles.bellChips}>
+              {BELL_OPTIONS.map(({ label, value }) => (
+                <Pressable
+                  key={label}
+                  style={[styles.bellChip, bellInterval === value && styles.bellChipActive]}
+                  onPress={() => selectBellInterval(value)}
+                >
+                  <Text
+                    style={[
+                      styles.bellChipText,
+                      { fontSize: statLabelFont },
+                      bellInterval === value && styles.bellChipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
               <View style={[styles.statTop, { height: statNumFont * 1.3 }]}>
@@ -259,6 +300,41 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     letterSpacing: 5,
     color: '#6B6B80',
+  },
+  bellRow: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  bellChips: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  bellChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#28283C',
+    backgroundColor: '#16161F',
+  },
+  bellChipActive: {
+    borderColor: '#7070FF',
+    backgroundColor: '#1E1E30',
+  },
+  bellChipText: {
+    fontWeight: '400',
+    letterSpacing: 2,
+    color: '#3A3A52',
+    textTransform: 'lowercase',
+  },
+  bellChipTextActive: {
+    color: '#C8C8D8',
+  },
+  bellLabel: {
+    fontWeight: '400',
+    letterSpacing: 3,
+    color: '#6B6B80',
+    textTransform: 'lowercase',
   },
   statsRow: {
     flexDirection: 'row',
