@@ -15,7 +15,13 @@ export async function saveSession(minutes: number): Promise<void> {
 
 export async function loadSessions(): Promise<Session[]> {
   const raw = await AsyncStorage.getItem(KEY);
-  return raw ? JSON.parse(raw) : [];
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export type Stats = {
@@ -24,17 +30,24 @@ export type Stats = {
   totalMinutes: number;
 };
 
-export function computeStats(sessions: Session[]): Stats {
-  const daySet = new Set(sessions.map((s) => new Date(s.completedAt).toDateString()));
+function localDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
+export function computeStats(sessions: Session[]): Stats {
+  const validSessions = sessions.filter(
+    (s) => typeof s.minutes === 'number' && typeof s.completedAt === 'string'
+  );
+
+  const daySet = new Set(validSessions.map((s) => localDateKey(new Date(s.completedAt))));
   const totalDays = daySet.size;
-  const totalMinutes = sessions.reduce((sum, s) => sum + s.minutes, 0);
+  const totalMinutes = validSessions.reduce((sum, s) => sum + s.minutes, 0);
 
   const now = new Date();
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now);
     d.setDate(now.getDate() - (6 - i));
-    return daySet.has(d.toDateString());
+    return daySet.has(localDateKey(d));
   });
 
   return { totalDays, last7Days, totalMinutes };

@@ -55,7 +55,7 @@ export default function TimerScreen() {
   }, []);
 
   useEffect(() => {
-    refreshStats();
+    refreshStats().catch(() => {});
   }, []);
 
   // --- Layout decisions ---
@@ -108,8 +108,8 @@ export default function TimerScreen() {
     tripleBell.seekTo(0);
     tripleBell.play();
     deactivateKeepAwake();
-    saveSession(activeTimer).then(refreshStats);
-  }, [finished]);
+    saveSession(activeTimer).then(refreshStats).catch(() => {});
+  }, [finished, activeTimer]);
 
   // Midpoint bell
   useEffect(() => {
@@ -124,7 +124,7 @@ export default function TimerScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && timerRunningRef.current) {
-        activateKeepAwakeAsync();
+        activateKeepAwakeAsync().catch(() => {});
       }
     });
     return () => sub.remove();
@@ -137,7 +137,7 @@ export default function TimerScreen() {
     setSecondsLeft(minutes * 60);
     singleBell.seekTo(0);
     singleBell.play();
-    activateKeepAwakeAsync();
+    activateKeepAwakeAsync().catch(() => {});
   }
 
   function cancel() {
@@ -211,32 +211,38 @@ export default function TimerScreen() {
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { fontSize: statNumFont }]}>
-                {stats.totalDays}
-              </Text>
+              <View style={[styles.statTop, { height: statNumFont * 1.3 }]}>
+                <Text style={[styles.statNumber, { fontSize: statNumFont }]}>
+                  {stats.totalDays}
+                </Text>
+              </View>
               <Text style={[styles.statLabel, { fontSize: statLabelFont }]}>days</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <View style={[styles.dotsRow, { gap: Math.round(4 * scale) }]}>
-                {stats.last7Days.map((active, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.dot,
-                      { width: Math.round(7 * scale), height: Math.round(7 * scale), borderRadius: Math.round(4 * scale) },
-                      active && styles.dotActive,
-                    ]}
-                  />
-                ))}
+              <View style={[styles.statTop, { height: statNumFont * 1.3 }]}>
+                <View style={[styles.dotsRow, { gap: Math.round(4 * scale) }]}>
+                  {stats.last7Days.map((active, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        styles.dot,
+                        { width: Math.round(7 * scale), height: Math.round(7 * scale), borderRadius: Math.round(4 * scale) },
+                        active && styles.dotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
               </View>
               <Text style={[styles.statLabel, { fontSize: statLabelFont }]}>last 7 days</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { fontSize: statNumFont }]}>
-                {formatDuration(stats.totalMinutes)}
-              </Text>
+              <View style={[styles.statTop, { height: statNumFont * 1.3 }]}>
+                <Text style={[styles.statNumber, { fontSize: statNumFont }]}>
+                  {formatDuration(stats.totalMinutes)}
+                </Text>
+              </View>
               <Text style={[styles.statLabel, { fontSize: statLabelFont }]}>total time</Text>
             </View>
           </View>
@@ -275,6 +281,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     gap: 4,
+  },
+  statTop: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   statDivider: {
     width: StyleSheet.hairlineWidth,
