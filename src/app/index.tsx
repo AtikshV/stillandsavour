@@ -1,4 +1,4 @@
-import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
+import { useAudioPlayer } from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -12,24 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  cancelBellNotifications,
-  configureBellNotifications,
-  requestBellPermission,
-  scheduleBellNotifications,
-} from '@/notifications/bell-notifications';
 import { BellInterval, loadBellInterval, saveBellInterval } from '@/storage/bell-preference';
-import {
-  clearPendingSession,
-  loadPendingSession,
-  savePendingSession,
-} from '@/storage/pending-session';
 import { Stats, formatDuration, loadStats, saveSession } from '@/storage/sessions';
-
-function intervalSecondsFor(bellInterval: BellInterval, totalSeconds: number): number | null {
-  if (bellInterval === 'off') return null;
-  return bellInterval === 'midpoint' ? totalSeconds / 2 : bellInterval * 60;
-}
 
 const BELL_OPTIONS: { label: string; value: BellInterval }[] = [
   { label: 'off', value: 'off' },
@@ -65,19 +49,7 @@ export default function TimerScreen() {
   const singleBell = useAudioPlayer(require('../../assets/sounds/bell_single.mp3'));
   const tripleBell = useAudioPlayer(require('../../assets/sounds/bell_triple.mp3'));
 
-  useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true });
-    configureBellNotifications()
-      .then(() => requestBellPermission())
-      .catch(() => {});
-  }, []);
-
   const timerRunningRef = useRef(false);
-  const scheduledBellIdsRef = useRef<string[]>([]);
-  const endsAtRef = useRef<number | null>(null);
-  const skipFinishBellRef = useRef(false);
-  const skipNextIntervalBellRef = useRef(false);
-  const lastSyncedSecondsRef = useRef(0);
 
   const refreshStats = useCallback(async () => {
     setStats(await loadStats());
@@ -86,38 +58,6 @@ export default function TimerScreen() {
   useEffect(() => {
     refreshStats().catch(() => {});
     loadBellInterval().then(setBellInterval).catch(() => {});
-  }, []);
-
-  // Recover a session that was in progress when the app process was last
-  // killed (not just backgrounded) — the bells still ring via notifications
-  // either way, but without this the completed session would never get
-  // saved, since that normally only happens via in-memory state.
-  useEffect(() => {
-    loadPendingSession()
-      .then((pending) => {
-        // Guards against the rare case where the user already started a new
-        // session (via the ref, not stale render-closure state) before this
-        // AsyncStorage read resolved — don't clobber it.
-        if (!pending || timerRunningRef.current) return;
-        const msRemaining = pending.endsAt - Date.now();
-        scheduledBellIdsRef.current = pending.notificationIds;
-        endsAtRef.current = pending.endsAt;
-        lastSyncedSecondsRef.current = Math.round(Math.max(0, msRemaining) / 1000);
-        setActiveTimer(pending.minutes);
-        setSecondsLeft(lastSyncedSecondsRef.current);
-        if (msRemaining <= 0) {
-          // Nominal duration already elapsed — the finish effect below will
-          // save the session and clean up, skipping the direct bell replay
-          // since the notification already rang it.
-          skipFinishBellRef.current = true;
-          setFinished(true);
-        } else {
-          timerRunningRef.current = true;
-          skipNextIntervalBellRef.current = true;
-          activateKeepAwakeAsync().catch(() => {});
-        }
-      })
-      .catch(() => {});
   }, []);
 
   function selectBellInterval(value: BellInterval) {
@@ -155,78 +95,47 @@ export default function TimerScreen() {
   const statLabelFont = Math.round(Math.min(10 * scale, 13));
   const bellLabelFont = Math.round(Math.min(13 * scale, 16));
 
-  // Recomputes secondsLeft/finished from the wall-clock endsAt timestamp
-  // rather than a naive decrement, so it self-corrects after the JS timer
-  // was suspended (screen off / backgrounded) instead of drifting.
-  //
-  // isResume marks a call triggered by the app returning to the foreground
-  // (as opposed to the steady once-a-second tick). If that resume reveals we
-  // skipped over real time — i.e. we were actually backgrounded through a
-  // bell mark, not just re-evaluating the same instant — any bell for that
-  // gap was already delivered as a background notification, so we suppress
-  // replaying it directly to avoid a double ring.
-  function syncSecondsLeft(isResume: boolean) {
-    const endsAt = endsAtRef.current;
-    if (endsAt === null) return;
-    const msRemaining = endsAt - Date.now();
-    const remaining = Math.max(0, Math.round(msRemaining / 1000));
-    const jumped = isResume && remaining !== lastSyncedSecondsRef.current;
-    lastSyncedSecondsRef.current = remaining;
-    if (jumped) {
-      skipNextIntervalBellRef.current = true;
-    }
-    setSecondsLeft(remaining);
-    if (msRemaining <= 0) {
-      skipFinishBellRef.current = jumped;
-      setFinished(true);
-    }
-  }
-
   useEffect(() => {
-    if (activeTimer === null || finished) return;
-    const interval = setInterval(() => syncSecondsLeft(false), 1000);
+    if (activeTimer === null) return;
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setFinished(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
     return () => clearInterval(interval);
-  }, [activeTimer, finished]);
+  }, [activeTimer]);
 
   useEffect(() => {
     if (!finished || activeTimer === null) return;
     timerRunningRef.current = false;
-    if (!skipFinishBellRef.current) {
-      tripleBell.seekTo(0);
-      tripleBell.play();
-    }
-    skipFinishBellRef.current = false;
+    tripleBell.seekTo(0);
+    tripleBell.play();
     deactivateKeepAwake().catch(() => {});
-    cancelBellNotifications(scheduledBellIdsRef.current).catch(() => {});
-    scheduledBellIdsRef.current = [];
-    clearPendingSession().catch(() => {});
     saveSession(activeTimer).then(refreshStats).catch(() => {});
   }, [finished, activeTimer]);
 
   // Interval bell (off / midpoint / every N minutes)
   useEffect(() => {
     if (activeTimer === null || secondsLeft === 0 || bellInterval === 'off') return;
-    if (skipNextIntervalBellRef.current) {
-      skipNextIntervalBellRef.current = false;
-      return;
-    }
     const totalSeconds = activeTimer * 60;
-    const intervalSeconds = intervalSecondsFor(bellInterval, totalSeconds);
+    const intervalSeconds = bellInterval === 'midpoint' ? totalSeconds / 2 : bellInterval * 60;
     const elapsed = totalSeconds - secondsLeft;
-    if (intervalSeconds && elapsed > 0 && elapsed % intervalSeconds === 0) {
+    if (elapsed > 0 && elapsed % intervalSeconds === 0) {
       singleBell.seekTo(0);
       singleBell.play();
     }
   }, [secondsLeft]);
 
-  // Re-acquire wake lock and resync the countdown when the app returns to
-  // the foreground mid-session, since the JS timer is suspended while
-  // backgrounded and won't otherwise notice a session finished while away.
+  // Re-acquire wake lock when app returns to foreground mid-session
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && timerRunningRef.current) {
         activateKeepAwakeAsync().catch(() => {});
-        syncSecondsLeft(true);
       }
     });
     return () => sub.remove();
@@ -235,32 +144,11 @@ export default function TimerScreen() {
   function startTimer(minutes: number) {
     timerRunningRef.current = true;
     setFinished(false);
-    skipFinishBellRef.current = false;
-    skipNextIntervalBellRef.current = false;
     setActiveTimer(minutes);
     setSecondsLeft(minutes * 60);
-    lastSyncedSecondsRef.current = minutes * 60;
-    const endsAt = Date.now() + minutes * 60_000;
-    endsAtRef.current = endsAt;
     singleBell.seekTo(0);
     singleBell.play();
     activateKeepAwakeAsync().catch(() => {});
-
-    const totalSeconds = minutes * 60;
-    const intervalSeconds = intervalSecondsFor(bellInterval, totalSeconds);
-    scheduleBellNotifications(totalSeconds, intervalSeconds)
-      .then((ids) => {
-        // endsAtRef only still matches if this session wasn't cancelled or
-        // superseded by a new one while scheduling was in flight — otherwise
-        // these notifications are orphaned and must be cancelled.
-        if (endsAtRef.current !== endsAt) {
-          cancelBellNotifications(ids).catch(() => {});
-          return;
-        }
-        scheduledBellIdsRef.current = ids;
-        savePendingSession({ minutes, endsAt, notificationIds: ids }).catch(() => {});
-      })
-      .catch(() => {});
   }
 
   function cancel() {
@@ -268,11 +156,7 @@ export default function TimerScreen() {
     setActiveTimer(null);
     setSecondsLeft(0);
     setFinished(false);
-    endsAtRef.current = null;
     deactivateKeepAwake().catch(() => {});
-    cancelBellNotifications(scheduledBellIdsRef.current).catch(() => {});
-    scheduledBellIdsRef.current = [];
-    clearPendingSession().catch(() => {});
   }
 
   return (
