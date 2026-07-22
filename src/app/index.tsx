@@ -1,4 +1,4 @@
-import { useAudioPlayer } from 'expo-audio';
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -48,6 +48,7 @@ export default function TimerScreen() {
 
   const singleBell = useAudioPlayer(require('../../assets/sounds/bell_single.mp3'));
   const tripleBell = useAudioPlayer(require('../../assets/sounds/bell_triple.mp3'));
+  const keepAlive = useAudioPlayer(require('../../assets/sounds/silence.wav'));
 
   const timerRunningRef = useRef(false);
 
@@ -56,6 +57,13 @@ export default function TimerScreen() {
   }, []);
 
   useEffect(() => {
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'doNotMix',
+    }).catch(() => {});
+    keepAlive.loop = true;
+    keepAlive.volume = 1;
     refreshStats().catch(() => {});
     loadBellInterval().then(setBellInterval).catch(() => {});
   }, []);
@@ -115,6 +123,8 @@ export default function TimerScreen() {
     timerRunningRef.current = false;
     tripleBell.seekTo(0);
     tripleBell.play();
+    keepAlive.pause();
+    keepAlive.setActiveForLockScreen(false);
     deactivateKeepAwake().catch(() => {});
     saveSession(activeTimer).then(refreshStats).catch(() => {});
   }, [finished, activeTimer]);
@@ -148,6 +158,9 @@ export default function TimerScreen() {
     setSecondsLeft(minutes * 60);
     singleBell.seekTo(0);
     singleBell.play();
+    keepAlive.seekTo(0);
+    keepAlive.setActiveForLockScreen(true, { title: 'Meditation timer' });
+    keepAlive.play();
     activateKeepAwakeAsync().catch(() => {});
   }
 
@@ -156,6 +169,8 @@ export default function TimerScreen() {
     setActiveTimer(null);
     setSecondsLeft(0);
     setFinished(false);
+    keepAlive.pause();
+    keepAlive.setActiveForLockScreen(false);
     deactivateKeepAwake().catch(() => {});
   }
 

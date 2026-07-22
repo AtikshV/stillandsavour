@@ -2,7 +2,7 @@
   "expo": {
     "name": "still and savour",
     "slug": "still-and-savour",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "stillandsavour",
@@ -40,7 +40,12 @@
           "imageWidth": 200
         }
       ],
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true
+        }
+      ],
       "expo-asset",
       "expo-image",
       "expo-status-bar",
