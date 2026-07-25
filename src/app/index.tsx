@@ -31,6 +31,9 @@ const TIMERS = [
 const BASE_WIDTH = 390;
 const MAX_BUTTON = 200;
 const MAX_CIRCLE = 400;
+// bell_triple.mp3 is ~24s long; start it this many seconds early so it
+// finishes naturally right as the countdown reaches zero.
+const TRIPLE_BELL_LEAD_SECONDS = 20;
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -63,7 +66,7 @@ export default function TimerScreen() {
       interruptionMode: 'doNotMix',
     }).catch(() => {});
     keepAlive.loop = true;
-    keepAlive.volume = 1;
+    keepAlive.volume = 0.1;
     refreshStats().catch(() => {});
     loadBellInterval().then(setBellInterval).catch(() => {});
   }, []);
@@ -121,13 +124,18 @@ export default function TimerScreen() {
   useEffect(() => {
     if (!finished || activeTimer === null) return;
     timerRunningRef.current = false;
-    tripleBell.seekTo(0);
-    tripleBell.play();
     keepAlive.pause();
     keepAlive.setActiveForLockScreen(false);
     deactivateKeepAwake().catch(() => {});
     saveSession(activeTimer).then(refreshStats).catch(() => {});
   }, [finished, activeTimer]);
+
+  // Closing triple bell, started early so it finishes right as the timer hits zero
+  useEffect(() => {
+    if (activeTimer === null || secondsLeft !== TRIPLE_BELL_LEAD_SECONDS) return;
+    tripleBell.seekTo(0);
+    tripleBell.play();
+  }, [secondsLeft]);
 
   // Interval bell (off / midpoint / every N minutes)
   useEffect(() => {
