@@ -138,7 +138,8 @@ export default function TimerScreen() {
   const cancelFont = Math.round(Math.min(13 * scale, 16));
   const statNumFont = Math.round(Math.min(20 * scale, 26));
   const statLabelFont = Math.round(Math.min(10 * scale, 13));
-  const bellLabelFont = Math.round(Math.min(13 * scale, 16));
+  const settingsLabelFont = Math.round(Math.min(13 * scale, 16));
+  const settingsLabelWidth = Math.round(Math.min(64 * scale, 74));
 
   useEffect(() => {
     if (activeTimer === null) return;
@@ -277,49 +278,61 @@ export default function TimerScreen() {
             ))}
           </View>
 
-          <View style={styles.bellRow}>
-            <Text style={[styles.bellLabel, { fontSize: bellLabelFont }]}>presence chime</Text>
-            <View style={styles.bellChips}>
-              {BELL_OPTIONS.map(({ label, value }) => (
-                <Pressable
-                  key={label}
-                  style={[styles.bellChip, bellInterval === value && styles.bellChipActive]}
-                  onPress={() => selectBellInterval(value)}
+          <View style={styles.settingsBlock}>
+            <View style={styles.settingsTable}>
+              <View style={styles.settingsRow}>
+                <Text
+                  style={[styles.statLabel, styles.settingsLabel, { fontSize: settingsLabelFont, width: settingsLabelWidth }]}
                 >
-                  <Text
-                    style={[
-                      styles.bellChipText,
-                      { fontSize: statLabelFont },
-                      bellInterval === value && styles.bellChipTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
+                  chime
+                </Text>
+                <View style={styles.bellChips}>
+                  {BELL_OPTIONS.map(({ label, value }) => (
+                    <Pressable
+                      key={label}
+                      style={[styles.bellChip, bellInterval === value && styles.bellChipActive]}
+                      onPress={() => selectBellInterval(value)}
+                    >
+                      <Text
+                        style={[
+                          styles.bellChipText,
+                          { fontSize: statLabelFont },
+                          bellInterval === value && styles.bellChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
 
-          <View style={styles.bellRow}>
-            <Text style={[styles.bellLabel, { fontSize: bellLabelFont }]}>background sound</Text>
-            <View style={styles.bellChips}>
-              {BACKGROUND_SOUND_OPTIONS.map(({ label, value }) => (
-                <Pressable
-                  key={label}
-                  style={[styles.bellChip, backgroundSound === value && styles.bellChipActive]}
-                  onPress={() => selectBackgroundSound(value)}
+              <View style={styles.settingsRow}>
+                <Text
+                  style={[styles.statLabel, styles.settingsLabel, { fontSize: settingsLabelFont, width: settingsLabelWidth }]}
                 >
-                  <Text
-                    style={[
-                      styles.bellChipText,
-                      { fontSize: statLabelFont },
-                      backgroundSound === value && styles.bellChipTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
+                  sound
+                </Text>
+                <View style={styles.bellChips}>
+                  {BACKGROUND_SOUND_OPTIONS.map(({ label, value }) => (
+                    <Pressable
+                      key={label}
+                      style={[styles.bellChip, backgroundSound === value && styles.bellChipActive]}
+                      onPress={() => selectBackgroundSound(value)}
+                    >
+                      <Text
+                        style={[
+                          styles.bellChipText,
+                          { fontSize: statLabelFont },
+                          backgroundSound === value && styles.bellChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
             </View>
           </View>
 
@@ -379,14 +392,28 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: '300',
     letterSpacing: 5,
-    color: '#6B6B80',
+    color: '#6E6EB8',
   },
-  bellRow: {
+  settingsBlock: {
     alignItems: 'center',
-    gap: 8,
+  },
+  settingsTable: {
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 10,
+  },
+  settingsLabel: {
+    textAlign: 'left',
   },
   bellChips: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
     gap: 8,
   },
   bellChip: {
@@ -410,12 +437,6 @@ const styles = StyleSheet.create({
   bellChipTextActive: {
     color: '#C8C8D8',
   },
-  bellLabel: {
-    fontWeight: '400',
-    letterSpacing: 3,
-    color: '#6B6B80',
-    textTransform: 'lowercase',
-  },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -423,7 +444,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginHorizontal: 32,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: '#1E1E2E',
+    borderColor: '#28283C',
     marginTop: 8,
   },
   statItem: {
@@ -438,7 +459,7 @@ const styles = StyleSheet.create({
   statDivider: {
     width: StyleSheet.hairlineWidth,
     height: 28,
-    backgroundColor: '#1E1E2E',
+    backgroundColor: '#28283C',
   },
   statNumber: {
     fontWeight: '300',
@@ -458,7 +479,7 @@ const styles = StyleSheet.create({
   statLabel: {
     fontWeight: '400',
     letterSpacing: 3,
-    color: '#3A3A52',
+    color: '#6E6EB8',
     textTransform: 'lowercase',
   },
   grid: {
@@ -487,7 +508,7 @@ const styles = StyleSheet.create({
   buttonUnit: {
     fontWeight: '400',
     letterSpacing: 4,
-    color: '#48486A',
+    color: '#6E6EB8',
     marginTop: -2,
   },
   activeContainer: {
@@ -517,7 +538,7 @@ const styles = StyleSheet.create({
   timerLabel: {
     fontWeight: '400',
     letterSpacing: 5,
-    color: '#48486A',
+    color: '#6E6EB8',
   },
   cancelButton: {
     paddingVertical: 14,
@@ -531,6 +552,6 @@ const styles = StyleSheet.create({
   cancelText: {
     fontWeight: '400',
     letterSpacing: 4,
-    color: '#48486A',
+    color: '#6E6EB8',
   },
 });
