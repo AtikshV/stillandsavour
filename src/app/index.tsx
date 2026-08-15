@@ -1,5 +1,6 @@
 import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState,
@@ -19,6 +20,14 @@ import {
   saveBackgroundSoundPref,
 } from '@/storage/keepalive-preference';
 import { Stats, formatDuration, loadStats, saveSession } from '@/storage/sessions';
+import {
+  DEFAULT_TIMER_DURATIONS,
+  MAX_TIMER_MINUTES,
+  MIN_TIMER_MINUTES,
+  TIMER_STEP_MINUTES,
+  loadTimerDurations,
+  saveTimerDurations,
+} from '@/storage/timer-durations';
 
 const BELL_OPTIONS: { label: string; value: BellInterval }[] = [
   { label: 'off', value: 'off' },
@@ -33,13 +42,6 @@ const BACKGROUND_SOUND_OPTIONS: { label: string; value: BackgroundSoundPref }[] 
 
 const KEEP_ALIVE_VOLUME_MUSIC = 0.35;
 const KEEP_ALIVE_VOLUME_SILENCE = 0.1;
-
-const TIMERS = [
-  { label: '10', minutes: 10 },
-  { label: '20', minutes: 20 },
-  { label: '40', minutes: 40 },
-  { label: '60', minutes: 60 },
-];
 
 const BASE_WIDTH = 390;
 const MAX_BUTTON = 200;
@@ -62,6 +64,8 @@ export default function TimerScreen() {
   const [stats, setStats] = useState<Stats>({ totalDays: 0, last7Days: Array(7).fill(false), totalMinutes: 0 });
   const [bellInterval, setBellInterval] = useState<BellInterval>('midpoint');
   const [backgroundSound, setBackgroundSound] = useState<BackgroundSoundPref>('music');
+  const [timerMinutes, setTimerMinutes] = useState<number[]>(DEFAULT_TIMER_DURATIONS);
+  const [editingTimers, setEditingTimers] = useState(false);
 
   const singleBell = useAudioPlayer(require('../../assets/sounds/bell_single.mp3'));
   const tripleBell = useAudioPlayer(require('../../assets/sounds/bell_triple.mp3'));
@@ -83,6 +87,7 @@ export default function TimerScreen() {
     keepAlive.volume = KEEP_ALIVE_VOLUME_MUSIC;
     refreshStats().catch(() => {});
     loadBellInterval().then(setBellInterval).catch(() => {});
+    loadTimerDurations().then(setTimerMinutes).catch(() => {});
     loadBackgroundSoundPref().then((pref) => {
       setBackgroundSound(pref);
       if (pref === 'off') {
@@ -108,6 +113,14 @@ export default function TimerScreen() {
     );
     keepAlive.loop = true;
     keepAlive.volume = value === 'off' ? KEEP_ALIVE_VOLUME_SILENCE : KEEP_ALIVE_VOLUME_MUSIC;
+  }
+
+  function adjustTimerMinutes(index: number, delta: number) {
+    const next = timerMinutes.map((m, i) =>
+      i === index ? Math.min(MAX_TIMER_MINUTES, Math.max(MIN_TIMER_MINUTES, m + delta)) : m
+    );
+    setTimerMinutes(next);
+    saveTimerDurations(next).catch(() => {});
   }
 
   // --- Layout decisions ---
@@ -140,6 +153,8 @@ export default function TimerScreen() {
   const statLabelFont = Math.round(Math.min(10 * scale, 13));
   const settingsLabelFont = Math.round(Math.min(13 * scale, 16));
   const settingsLabelWidth = Math.round(Math.min(64 * scale, 74));
+  const stepperIconSize = Math.round(Math.min(20 * scale, 24));
+  const editIconSize = Math.round(Math.min(17 * scale, 20));
 
   useEffect(() => {
     if (activeTimer === null) return;
@@ -249,33 +264,83 @@ export default function TimerScreen() {
         </View>
       ) : (
         <>
-          <View
-            style={[
-              styles.grid,
-              {
-                flexDirection: 'row',
-                flexWrap: cols === 4 ? 'nowrap' : 'wrap',
-                gap,
-                paddingHorizontal: gutter,
-              },
-            ]}
-          >
-            {TIMERS.map(({ label, minutes }) => (
-              <Pressable
-                key={minutes}
-                style={({ pressed }) => [
-                  styles.timerButton,
-                  { width: buttonSize, height: buttonSize, borderRadius: buttonSize / 2 },
-                  pressed && styles.timerButtonPressed,
-                ]}
-                onPress={() => startTimer(minutes)}
-              >
-                <Text style={[styles.buttonMinutes, { fontSize: numFont, lineHeight: numFont * 1.1 }]}>
-                  {label}
-                </Text>
-                <Text style={[styles.buttonUnit, { fontSize: unitFont }]}>min</Text>
-              </Pressable>
-            ))}
+          <View style={styles.pickerWrap}>
+            <View
+              style={[
+                styles.grid,
+                {
+                  flexDirection: 'row',
+                  flexWrap: cols === 4 ? 'nowrap' : 'wrap',
+                  gap,
+                  paddingHorizontal: gutter,
+                },
+              ]}
+            >
+              {timerMinutes.map((minutes, index) => (
+                <Pressable
+                  key={index}
+                  style={({ pressed }) => [
+                    styles.timerButton,
+                    { width: buttonSize, height: buttonSize, borderRadius: buttonSize / 2 },
+                    pressed && !editingTimers && styles.timerButtonPressed,
+                  ]}
+                  onPress={editingTimers ? undefined : () => startTimer(minutes)}
+                >
+                  <Text style={[styles.buttonMinutes, { fontSize: numFont, lineHeight: numFont * 1.1 }]}>
+                    {minutes}
+                  </Text>
+                  <Text style={[styles.buttonUnit, { fontSize: unitFont }]}>min</Text>
+
+                  <View
+                    style={[styles.caretRow, styles.caretRowTop, { top: Math.round(buttonSize * 0.1) }]}
+                    pointerEvents={editingTimers ? 'box-none' : 'none'}
+                  >
+                    <Pressable
+                      hitSlop={10}
+                      disabled={!editingTimers || minutes >= MAX_TIMER_MINUTES}
+                      onPress={() => adjustTimerMinutes(index, TIMER_STEP_MINUTES)}
+                      style={{ opacity: editingTimers ? 1 : 0 }}
+                    >
+                      <SymbolView
+                        name={{ ios: 'chevron.up', android: 'keyboard_arrow_up', web: 'keyboard_arrow_up' }}
+                        size={stepperIconSize}
+                        tintColor={minutes >= MAX_TIMER_MINUTES ? '#2A2A3E' : '#6E6EB8'}
+                      />
+                    </Pressable>
+                  </View>
+
+                  <View
+                    style={[styles.caretRow, styles.caretRowBottom, { bottom: Math.round(buttonSize * 0.1) }]}
+                    pointerEvents={editingTimers ? 'box-none' : 'none'}
+                  >
+                    <Pressable
+                      hitSlop={10}
+                      disabled={!editingTimers || minutes <= MIN_TIMER_MINUTES}
+                      onPress={() => adjustTimerMinutes(index, -TIMER_STEP_MINUTES)}
+                      style={{ opacity: editingTimers ? 1 : 0 }}
+                    >
+                      <SymbolView
+                        name={{ ios: 'chevron.down', android: 'keyboard_arrow_down', web: 'keyboard_arrow_down' }}
+                        size={stepperIconSize}
+                        tintColor={minutes <= MIN_TIMER_MINUTES ? '#2A2A3E' : '#6E6EB8'}
+                      />
+                    </Pressable>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+
+            <Pressable
+              style={styles.editIconButton}
+              hitSlop={10}
+              onPress={() => setEditingTimers((v) => !v)}
+            >
+              <SymbolView
+                name={{ ios: editingTimers ? 'checkmark' : 'pencil', android: editingTimers ? 'check' : 'edit', web: editingTimers ? 'check' : 'edit' }}
+                size={editIconSize}
+                tintColor={editingTimers ? '#7070FF' : '#3A3A52'}
+              />
+            </Pressable>
           </View>
 
           <View style={styles.settingsBlock}>
@@ -482,8 +547,12 @@ const styles = StyleSheet.create({
     color: '#6E6EB8',
     textTransform: 'lowercase',
   },
-  grid: {
+  pickerWrap: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  grid: {
     justifyContent: 'center',
     alignContent: 'center',
     alignItems: 'center',
@@ -510,6 +579,18 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     color: '#6E6EB8',
     marginTop: -2,
+  },
+  caretRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  caretRowTop: {
+    top: 0,
+  },
+  caretRowBottom: {
+    bottom: 0,
   },
   activeContainer: {
     flex: 1,
@@ -553,5 +634,12 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     letterSpacing: 4,
     color: '#6E6EB8',
+  },
+  editIconButton: {
+    marginTop: 6,
+    padding: 6,
+    alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
