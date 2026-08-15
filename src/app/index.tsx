@@ -13,13 +13,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BellInterval, loadBellInterval, saveBellInterval } from '@/storage/bell-preference';
+import {
+  BackgroundSoundPref,
+  loadBackgroundSoundPref,
+  saveBackgroundSoundPref,
+} from '@/storage/keepalive-preference';
 import { Stats, formatDuration, loadStats, saveSession } from '@/storage/sessions';
 
 const BELL_OPTIONS: { label: string; value: BellInterval }[] = [
   { label: 'off', value: 'off' },
-  { label: 'midpoint', value: 'midpoint' },
-  { label: 'every 10 min', value: 10 },
+  { label: 'mid', value: 'midpoint' },
+  { label: 'q10min', value: 10 },
 ];
+
+const BACKGROUND_SOUND_OPTIONS: { label: string; value: BackgroundSoundPref }[] = [
+  { label: 'off', value: 'off' },
+  { label: 'music', value: 'music' },
+];
+
+const KEEP_ALIVE_VOLUME_MUSIC = 0.35;
+const KEEP_ALIVE_VOLUME_SILENCE = 0.1;
 
 const TIMERS = [
   { label: '10', minutes: 10 },
@@ -48,10 +61,11 @@ export default function TimerScreen() {
   const [finished, setFinished] = useState(false);
   const [stats, setStats] = useState<Stats>({ totalDays: 0, last7Days: Array(7).fill(false), totalMinutes: 0 });
   const [bellInterval, setBellInterval] = useState<BellInterval>('midpoint');
+  const [backgroundSound, setBackgroundSound] = useState<BackgroundSoundPref>('music');
 
   const singleBell = useAudioPlayer(require('../../assets/sounds/bell_single.mp3'));
   const tripleBell = useAudioPlayer(require('../../assets/sounds/bell_triple.mp3'));
-  const keepAlive = useAudioPlayer(require('../../assets/sounds/silence.wav'));
+  const keepAlive = useAudioPlayer(require('../../assets/sounds/ambient_music.mp3'));
 
   const timerRunningRef = useRef(false);
 
@@ -66,14 +80,34 @@ export default function TimerScreen() {
       interruptionMode: 'doNotMix',
     }).catch(() => {});
     keepAlive.loop = true;
-    keepAlive.volume = 0.1;
+    keepAlive.volume = KEEP_ALIVE_VOLUME_MUSIC;
     refreshStats().catch(() => {});
     loadBellInterval().then(setBellInterval).catch(() => {});
+    loadBackgroundSoundPref().then((pref) => {
+      setBackgroundSound(pref);
+      if (pref === 'off') {
+        keepAlive.replace(require('../../assets/sounds/silence.wav'));
+        keepAlive.loop = true;
+        keepAlive.volume = KEEP_ALIVE_VOLUME_SILENCE;
+      }
+    }).catch(() => {});
   }, []);
 
   function selectBellInterval(value: BellInterval) {
     setBellInterval(value);
     saveBellInterval(value).catch(() => {});
+  }
+
+  function selectBackgroundSound(value: BackgroundSoundPref) {
+    setBackgroundSound(value);
+    saveBackgroundSoundPref(value).catch(() => {});
+    keepAlive.replace(
+      value === 'off'
+        ? require('../../assets/sounds/silence.wav')
+        : require('../../assets/sounds/ambient_music.mp3')
+    );
+    keepAlive.loop = true;
+    keepAlive.volume = value === 'off' ? KEEP_ALIVE_VOLUME_SILENCE : KEEP_ALIVE_VOLUME_MUSIC;
   }
 
   // --- Layout decisions ---
@@ -257,6 +291,29 @@ export default function TimerScreen() {
                       styles.bellChipText,
                       { fontSize: statLabelFont },
                       bellInterval === value && styles.bellChipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.bellRow}>
+            <Text style={[styles.bellLabel, { fontSize: bellLabelFont }]}>background sound</Text>
+            <View style={styles.bellChips}>
+              {BACKGROUND_SOUND_OPTIONS.map(({ label, value }) => (
+                <Pressable
+                  key={label}
+                  style={[styles.bellChip, backgroundSound === value && styles.bellChipActive]}
+                  onPress={() => selectBackgroundSound(value)}
+                >
+                  <Text
+                    style={[
+                      styles.bellChipText,
+                      { fontSize: statLabelFont },
+                      backgroundSound === value && styles.bellChipTextActive,
                     ]}
                   >
                     {label}
